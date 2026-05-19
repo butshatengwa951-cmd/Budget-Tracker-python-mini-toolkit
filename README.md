@@ -1,4 +1,3 @@
-Markdown
 # Productivity Suite
 
 ### Short project description
