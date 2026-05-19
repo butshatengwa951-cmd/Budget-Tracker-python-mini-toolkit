@@ -1,0 +1,25 @@
+{
+  "transactions": [
+    {
+      "type": "income",
+      "amount": 40000.0,
+      "category": "Salary",
+      "note": "",
+      "date": "2026-05-19 11:37"
+    },
+    {
+      "type": "income",
+      "amount": 370.0,
+      "category": "Other",
+      "note": "Government Grant",
+      "date": "2026-05-19 11:39"
+    }
+  ],
+  "categories": [
+    "Food",
+    "Rent",
+    "Transport",
+    "Salary",
+    "Other"
+  ]
+}
