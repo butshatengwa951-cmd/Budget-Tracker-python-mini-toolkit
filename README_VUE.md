@@ -217,7 +217,29 @@ The migration also required working through practical full-stack concerns such a
 
 ## Colour Palette
 
-- Purple: `#723ECF`
-- Pink: `#ED4B86`
-- Lavender: `#F4EEF7`
-- Warm cream: `#FEF8E7`
+The current Vue interface uses a warm sunset landscape in the main theme, with earthy green field tones, cream glass panels and terracotta accents. Moonlight mode switches the interface to a deep blue palette.
+
+### Sunset Mode
+
+- Sky top: `#F8C6A2`
+- Sky mid: `#F29A70`
+- Sky low: `#D96962`
+- Horizon: `#8B4E58`
+- Field green: `#4B7045`
+- Deep field green: `#17362B`
+- Cream surfaces: `rgba(255, 248, 232, 0.88)`
+- Warm terracotta accent: `#C76545`
+- Deep terracotta: `#9E4733`
+
+### Moonlight Mode
+
+- Deep navy sky: `#101B38`
+- Blue night sky: `#182B50`
+- Night horizon: `#29365D`
+- Night field: `#263E39`
+- Dark field: `#0C201F`
+- Cool cream text: `#E8EDF4`
+- Golden accent: `#D5A06B`
+- Muted blue-grey text: `#9AA8B8`
+
+The interface uses the same underlying layout in both modes, with the theme toggle changing the landscape, surfaces, text, shadows and accent treatment.
