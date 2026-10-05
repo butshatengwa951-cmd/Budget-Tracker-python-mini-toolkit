@@ -1,26 +1,28 @@
 import os
-import sqlite3
+import ssl
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
+
+import pymysql
+from pymysql.cursors import DictCursor
+
 try:
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 except ImportError:
     ZoneInfo = None
     ZoneInfoNotFoundError = Exception
 
-DEFAULT_DB_PATH = Path(__file__).resolve().parent / "productivity.db"
-DB_PATH = Path(os.getenv("DB_PATH", str(DEFAULT_DB_PATH)))
-DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-try:
-    LOCAL_TZ = ZoneInfo("Africa/Johannesburg") if ZoneInfo else timezone(timedelta(hours=2))
-except ZoneInfoNotFoundError:
-    # Windows Python may not ship the IANA timezone database.
-    # South Africa stays at UTC+02:00 year-round, so this fallback is exact.
-    LOCAL_TZ = timezone(timedelta(hours=2))
-
 VALID_FREQUENCIES = ("daily", "weekly", "monthly", "yearly")
 VALID_TIME_UNITS = ("seconds", "minutes", "hours")
+
+
+try:
+    LOCAL_TZ = (
+        ZoneInfo("Africa/Johannesburg")
+        if ZoneInfo
+        else timezone(timedelta(hours=2))
+    )
+except ZoneInfoNotFoundError:
+    LOCAL_TZ = timezone(timedelta(hours=2))
 
 
 def local_now():
@@ -35,10 +37,101 @@ def local_timestamp():
     return local_now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _ssl_context():
+    mode = os.getenv("MYSQL_SSL_MODE", "VERIFY_CA").upper()
+    ca_value = os.getenv("MYSQL_SSL_CA", "").strip()
+
+    if mode == "DISABLED":
+        return None
+
+    if ca_value:
+        if "BEGIN CERTIFICATE" in ca_value:
+            return ssl.create_default_context(cadata=ca_value)
+        return ssl.create_default_context(cafile=ca_value)
+
+    if mode == "REQUIRED":
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        return context
+
+    raise RuntimeError(
+        "MYSQL_SSL_CA is required when MYSQL_SSL_MODE is VERIFY_CA."
+    )
+
+
+class Database:
+    def __init__(self):
+        host = os.getenv("MYSQL_HOST")
+        user = os.getenv("MYSQL_USER")
+        password = os.getenv("MYSQL_PASSWORD")
+        database = os.getenv("MYSQL_DATABASE")
+        port = int(os.getenv("MYSQL_PORT", "3306"))
+
+        missing = [
+            name
+            for name, value in {
+                "MYSQL_HOST": host,
+                "MYSQL_USER": user,
+                "MYSQL_PASSWORD": password,
+                "MYSQL_DATABASE": database,
+            }.items()
+            if not value
+        ]
+
+        if missing:
+            raise RuntimeError(
+                "Missing MySQL configuration: " + ", ".join(missing)
+            )
+
+        connect_kwargs = {
+            "host": host,
+            "port": port,
+            "user": user,
+            "password": password,
+            "database": database,
+            "charset": "utf8mb4",
+            "cursorclass": DictCursor,
+            "autocommit": False,
+            "connect_timeout": 15,
+            "read_timeout": 30,
+            "write_timeout": 30,
+        }
+
+        ssl_context = _ssl_context()
+        if ssl_context is not None:
+            connect_kwargs["ssl"] = ssl_context
+
+        self.connection = pymysql.connect(**connect_kwargs)
+
+    def execute(self, sql, params=None):
+        sql = sql.replace("?", "%s")
+        sql = sql.replace("INSERT OR IGNORE", "INSERT IGNORE")
+        cursor = self.connection.cursor()
+        cursor.execute(sql, params or ())
+        return cursor
+
+    def executescript(self, script):
+        statements = [
+            statement.strip()
+            for statement in script.split(";")
+            if statement.strip()
+        ]
+        for statement in statements:
+            self.execute(statement)
+
+    def commit(self):
+        self.connection.commit()
+
+    def rollback(self):
+        self.connection.rollback()
+
+    def close(self):
+        self.connection.close()
+
+
 def get_db():
-    db = sqlite3.connect(DB_PATH)
-    db.row_factory = sqlite3.Row
-    return db
+    return Database()
 
 
 def period_dates(day, frequency):
@@ -65,184 +158,183 @@ def period_dates(day, frequency):
 
 
 def ensure_column(db, table, column, definition):
-    columns = {
-        row["name"]
-        for row in db.execute(f"PRAGMA table_info({table})").fetchall()
-    }
-    if column not in columns:
+    row = db.execute(
+        """
+        SELECT COUNT(*) AS column_count
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA=DATABASE()
+          AND TABLE_NAME=?
+          AND COLUMN_NAME=?
+        """,
+        (table, column),
+    ).fetchone()
+
+    if row["column_count"] == 0:
         db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
-
-
-def convert_legacy_transaction_timestamps(db):
-    # The original version stored SQLite datetime('now') values in UTC.
-    # Convert those legacy timestamps once to South African local time.
-    rows = db.execute(
-        """
-        SELECT id, date
-        FROM transactions
-        WHERE length(date)=19
-          AND date GLOB '____-__-__ __:__:__'
-        """
-    ).fetchall()
-
-    for row in rows:
-        raw = str(row["date"])
-
-        try:
-            utc_value = datetime.strptime(
-                raw, "%Y-%m-%d %H:%M:%S"
-            ).replace(tzinfo=timezone.utc)
-        except ValueError:
-            continue
-
-        local_value = utc_value.astimezone(LOCAL_TZ)
-        db.execute(
-            "UPDATE transactions SET date=? WHERE id=?",
-            (
-                local_value.strftime("%Y-%m-%d %H:%M:%S"),
-                row["id"],
-            ),
-        )
 
 
 def init_db():
     db = get_db()
 
-    db.executescript("""
-    CREATE TABLE IF NOT EXISTS transactions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      type TEXT NOT NULL CHECK(type IN ('income','expense')),
-      amount REAL NOT NULL,
-      category TEXT NOT NULL,
-      note TEXT DEFAULT '',
-      date TEXT NOT NULL,
-      period_id INTEGER
-    );
-
-    CREATE TABLE IF NOT EXISTS tasks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      priority TEXT NOT NULL DEFAULT 'medium',
-      done INTEGER NOT NULL DEFAULT 0,
-      created TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS study_sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      subject TEXT NOT NULL,
-      duration REAL NOT NULL,
-      date TEXT NOT NULL,
-      done INTEGER NOT NULL DEFAULT 0,
-      unit TEXT NOT NULL DEFAULT 'minutes',
-      duration_seconds INTEGER NOT NULL DEFAULT 0
-    );
-
-    CREATE TABLE IF NOT EXISTS settings (
-      id INTEGER PRIMARY KEY CHECK(id = 1),
-      reset_frequency TEXT NOT NULL DEFAULT 'monthly',
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS budget_periods (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      frequency TEXT NOT NULL,
-      start_date TEXT NOT NULL,
-      end_date TEXT NOT NULL,
-      is_current INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      closed_at TEXT,
-      UNIQUE(frequency, start_date)
-    );
-
-    INSERT OR IGNORE INTO settings (id, reset_frequency)
-    VALUES (1, 'monthly');
-    """)
-
-    ensure_column(db, "transactions", "period_id", "INTEGER")
-    ensure_column(db, "study_sessions", "unit", "TEXT NOT NULL DEFAULT 'minutes'")
-    ensure_column(db, "study_sessions", "duration_seconds", "INTEGER NOT NULL DEFAULT 0")
-    convert_legacy_transaction_timestamps(db)
-
-    # Existing study sessions were stored as minutes.
-    db.execute("""
-        UPDATE study_sessions
-        SET unit='minutes',
-            duration_seconds=CAST(ROUND(duration * 60) AS INTEGER)
-        WHERE duration_seconds IS NULL OR duration_seconds=0
-    """)
-
-    frequency = db.execute(
-        "SELECT reset_frequency FROM settings WHERE id=1"
-    ).fetchone()["reset_frequency"]
-
-    if frequency not in VALID_FREQUENCIES:
-        frequency = "monthly"
-        db.execute(
+    try:
+        db.executescript(
             """
-            UPDATE settings
-            SET reset_frequency='monthly', updated_at=?
-            WHERE id=1
+            CREATE TABLE IF NOT EXISTS transactions (
+              id INT PRIMARY KEY AUTO_INCREMENT,
+              type VARCHAR(20) NOT NULL,
+              amount DOUBLE NOT NULL,
+              category VARCHAR(255) NOT NULL,
+              note TEXT DEFAULT NULL,
+              date VARCHAR(32) NOT NULL,
+              period_id INT,
+              CHECK(type IN ('income','expense'))
+            );
+
+            CREATE TABLE IF NOT EXISTS tasks (
+              id INT PRIMARY KEY AUTO_INCREMENT,
+              name VARCHAR(255) NOT NULL,
+              priority VARCHAR(20) NOT NULL DEFAULT 'medium',
+              done TINYINT(1) NOT NULL DEFAULT 0,
+              created VARCHAR(32) NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS study_sessions (
+              id INT PRIMARY KEY AUTO_INCREMENT,
+              subject VARCHAR(255) NOT NULL,
+              duration DOUBLE NOT NULL,
+              date VARCHAR(32) NOT NULL,
+              done TINYINT(1) NOT NULL DEFAULT 0,
+              unit VARCHAR(16) NOT NULL DEFAULT 'minutes',
+              duration_seconds INT NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS settings (
+              id INT PRIMARY KEY,
+              reset_frequency VARCHAR(20) NOT NULL DEFAULT 'monthly',
+              updated_at VARCHAR(32) NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS budget_periods (
+              id INT PRIMARY KEY AUTO_INCREMENT,
+              frequency VARCHAR(20) NOT NULL,
+              start_date VARCHAR(32) NOT NULL,
+              end_date VARCHAR(32) NOT NULL,
+              is_current TINYINT(1) NOT NULL DEFAULT 0,
+              created_at VARCHAR(32) NOT NULL,
+              closed_at VARCHAR(32) NULL,
+              UNIQUE KEY unique_frequency_start (frequency, start_date)
+            );
+
+            INSERT IGNORE INTO settings (id, reset_frequency, updated_at)
+            VALUES (1, 'monthly', ?);
             """,
             (local_timestamp(),),
         )
 
-    # Repair/migrate existing transactions into the correct local-time period.
-    transaction_rows = db.execute(
-        "SELECT id, date, period_id FROM transactions ORDER BY date, id"
-    ).fetchall()
+        ensure_column(db, "transactions", "period_id", "INT")
+        ensure_column(
+            db,
+            "study_sessions",
+            "unit",
+            "VARCHAR(16) NOT NULL DEFAULT 'minutes'",
+        )
+        ensure_column(
+            db,
+            "study_sessions",
+            "duration_seconds",
+            "INT NOT NULL DEFAULT 0",
+        )
 
-    for row in transaction_rows:
-        try:
-            transaction_day = date.fromisoformat(str(row["date"])[:10])
-        except ValueError:
-            transaction_day = local_today()
+        db.execute(
+            """
+            UPDATE study_sessions
+            SET unit='minutes',
+                duration_seconds=ROUND(duration * 60)
+            WHERE duration_seconds IS NULL OR duration_seconds=0
+            """
+        )
 
-        if row["period_id"]:
-            period = db.execute(
-                "SELECT frequency FROM budget_periods WHERE id=?",
-                (row["period_id"],),
-            ).fetchone()
+        frequency_row = db.execute(
+            "SELECT reset_frequency FROM settings WHERE id=1"
+        ).fetchone()
+        frequency = (
+            frequency_row["reset_frequency"]
+            if frequency_row
+            else "monthly"
+        )
 
-            if period:
-                transaction_frequency = period["frequency"]
-            else:
-                transaction_frequency = frequency
-        else:
+        if frequency not in VALID_FREQUENCIES:
+            frequency = "monthly"
+            db.execute(
+                """
+                UPDATE settings
+                SET reset_frequency='monthly', updated_at=?
+                WHERE id=1
+                """,
+                (local_timestamp(),),
+            )
+
+        transaction_rows = db.execute(
+            "SELECT id, date, period_id FROM transactions ORDER BY date, id"
+        ).fetchall()
+
+        for row in transaction_rows:
+            try:
+                transaction_day = date.fromisoformat(str(row["date"])[:10])
+            except ValueError:
+                transaction_day = local_today()
+
             transaction_frequency = frequency
 
-        start, end = period_dates(transaction_day, transaction_frequency)
+            if row["period_id"]:
+                period = db.execute(
+                    "SELECT frequency FROM budget_periods WHERE id=?",
+                    (row["period_id"],),
+                ).fetchone()
+                if period:
+                    transaction_frequency = period["frequency"]
 
-        db.execute(
-            """
-            INSERT OR IGNORE INTO budget_periods
-              (frequency, start_date, end_date, is_current)
-            VALUES (?, ?, ?, 0)
-            """,
-            (
+            start, end = period_dates(
+                transaction_day,
                 transaction_frequency,
-                start.isoformat(),
-                end.isoformat(),
-            ),
-        )
+            )
 
-        period_id = db.execute(
-            """
-            SELECT id FROM budget_periods
-            WHERE frequency=? AND start_date=?
-            """,
-            (
-                transaction_frequency,
-                start.isoformat(),
-            ),
-        ).fetchone()["id"]
+            db.execute(
+                """
+                INSERT IGNORE INTO budget_periods
+                  (frequency, start_date, end_date, is_current, created_at)
+                VALUES (?, ?, ?, 0, ?)
+                """,
+                (
+                    transaction_frequency,
+                    start.isoformat(),
+                    end.isoformat(),
+                    local_timestamp(),
+                ),
+            )
 
-        db.execute(
-            "UPDATE transactions SET period_id=? WHERE id=?",
-            (period_id, row["id"]),
-        )
+            period_row = db.execute(
+                """
+                SELECT id FROM budget_periods
+                WHERE frequency=? AND start_date=?
+                """,
+                (
+                    transaction_frequency,
+                    start.isoformat(),
+                ),
+            ).fetchone()
 
-    db.commit()
-    db.close()
+            db.execute(
+                "UPDATE transactions SET period_id=? WHERE id=?",
+                (period_row["id"], row["id"]),
+            )
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 def get_setting(db, key="reset_frequency"):
@@ -251,6 +343,7 @@ def get_setting(db, key="reset_frequency"):
             "SELECT reset_frequency FROM settings WHERE id=1"
         ).fetchone()
         return row["reset_frequency"] if row else "monthly"
+
     return None
 
 
@@ -266,11 +359,16 @@ def ensure_current_period(db):
 
     db.execute(
         """
-        INSERT OR IGNORE INTO budget_periods
-          (frequency, start_date, end_date, is_current)
-        VALUES (?, ?, ?, 1)
+        INSERT IGNORE INTO budget_periods
+          (frequency, start_date, end_date, is_current, created_at)
+        VALUES (?, ?, ?, 1, ?)
         """,
-        (frequency, start.isoformat(), end.isoformat()),
+        (
+            frequency,
+            start.isoformat(),
+            end.isoformat(),
+            now,
+        ),
     )
 
     db.execute(
@@ -310,7 +408,8 @@ def ensure_current_period(db):
 
 def get_period_summary(db, period_id):
     period = db.execute(
-        "SELECT * FROM budget_periods WHERE id=?", (period_id,)
+        "SELECT * FROM budget_periods WHERE id=?",
+        (period_id,),
     ).fetchone()
 
     if not period:
@@ -318,19 +417,21 @@ def get_period_summary(db, period_id):
 
     income = db.execute(
         """
-        SELECT COALESCE(SUM(amount),0) FROM transactions
+        SELECT COALESCE(SUM(amount),0) AS value
+        FROM transactions
         WHERE period_id=? AND type='income'
         """,
         (period_id,),
-    ).fetchone()[0]
+    ).fetchone()["value"]
 
     expenses = db.execute(
         """
-        SELECT COALESCE(SUM(amount),0) FROM transactions
+        SELECT COALESCE(SUM(amount),0) AS value
+        FROM transactions
         WHERE period_id=? AND type='expense'
         """,
         (period_id,),
-    ).fetchone()[0]
+    ).fetchone()["value"]
 
     recent = db.execute(
         """
@@ -353,6 +454,15 @@ def get_period_summary(db, period_id):
         (period_id,),
     ).fetchall()
 
+    transaction_count = db.execute(
+        """
+        SELECT COUNT(*) AS value
+        FROM transactions
+        WHERE period_id=?
+        """,
+        (period_id,),
+    ).fetchone()["value"]
+
     return {
         "id": period["id"],
         "frequency": period["frequency"],
@@ -362,10 +472,7 @@ def get_period_summary(db, period_id):
         "income": income,
         "expenses": expenses,
         "balance": income - expenses,
-        "transactionCount": db.execute(
-            "SELECT COUNT(*) FROM transactions WHERE period_id=?",
-            (period_id,),
-        ).fetchone()[0],
+        "transactionCount": transaction_count,
         "recentTransactions": [dict(row) for row in recent],
         "categories": [dict(row) for row in categories],
     }
