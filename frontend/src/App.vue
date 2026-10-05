@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 
-const api = '/api'
+const api = import.meta.env.VITE_API_URL || '/api'
 
 const active = ref('dashboard')
 const summary = ref({
