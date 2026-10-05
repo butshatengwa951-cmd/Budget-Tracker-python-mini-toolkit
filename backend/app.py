@@ -127,7 +127,7 @@ def toggle_study(item_id):
     db = get_db()
     db.execute("UPDATE study_sessions SET done = CASE done WHEN 0 THEN 1 ELSE 0 END WHERE id=?", (item_id,))
     db.commit()
-    row = db.execute("SELECT * FROM study_sessions WHERE id=?", (item_id,)).fetchone())
+    row = db.execute("SELECT * FROM study_sessions WHERE id=?", (item_id,)).fetchone()
     return jsonify(dict(row)) if row else (jsonify({"error": "Session not found"}), 404)
 
 if __name__ == "__main__":
