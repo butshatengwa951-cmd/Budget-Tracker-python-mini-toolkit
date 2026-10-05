@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -7,7 +8,9 @@ except ImportError:
     ZoneInfo = None
     ZoneInfoNotFoundError = Exception
 
-DB_PATH = Path(__file__).resolve().parent / "productivity.db"
+DEFAULT_DB_PATH = Path(__file__).resolve().parent / "productivity.db"
+DB_PATH = Path(os.getenv("DB_PATH", str(DEFAULT_DB_PATH)))
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 try:
     LOCAL_TZ = ZoneInfo("Africa/Johannesburg") if ZoneInfo else timezone(timedelta(hours=2))
