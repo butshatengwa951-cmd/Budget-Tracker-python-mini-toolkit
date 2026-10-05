@@ -61,9 +61,13 @@ class Database:
             for statement in script.split(";")
             if statement.strip()
         ]
+
         for statement in statements:
-            self.execute(statement, params)
-            params = None
+            if params and "?" in statement:
+                self.execute(statement, params)
+                params = None
+            else:
+                self.execute(statement)
 
     def commit(self):
         self.connection.commit()
