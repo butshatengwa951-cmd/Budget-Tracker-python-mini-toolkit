@@ -95,11 +95,11 @@ def summary():
     data = get_period_summary(db, period["id"])
 
     tasks = db.execute(
-        "SELECT COUNT(*) FROM tasks WHERE done=0"
-    ).fetchone()[0]
+        "SELECT COUNT(*) AS value FROM tasks WHERE done=0"
+    ).fetchone()["value"]
     study = db.execute(
-        "SELECT COALESCE(SUM(duration_seconds),0) FROM study_sessions WHERE done=0"
-    ).fetchone()[0]
+        "SELECT COALESCE(SUM(duration_seconds),0) AS value FROM study_sessions WHERE done=0"
+    ).fetchone()["value"]
 
     db.close()
 
