@@ -1,10 +1,20 @@
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
+try:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+except ImportError:
+    ZoneInfo = None
+    ZoneInfoNotFoundError = Exception
 
 DB_PATH = Path(__file__).resolve().parent / "productivity.db"
-LOCAL_TZ = ZoneInfo("Africa/Johannesburg")
+
+try:
+    LOCAL_TZ = ZoneInfo("Africa/Johannesburg") if ZoneInfo else timezone(timedelta(hours=2))
+except ZoneInfoNotFoundError:
+    # Windows Python may not ship the IANA timezone database.
+    # South Africa stays at UTC+02:00 year-round, so this fallback is exact.
+    LOCAL_TZ = timezone(timedelta(hours=2))
 
 VALID_FREQUENCIES = ("daily", "weekly", "monthly", "yearly")
 
