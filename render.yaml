@@ -10,24 +10,13 @@ services:
     healthCheckPath: /api/health
     autoDeployTrigger: commit
     envVars:
-      - key: MYSQL_HOST
-        sync: false
-      - key: MYSQL_PORT
-        sync: false
-      - key: MYSQL_USER
-        sync: false
-      - key: MYSQL_PASSWORD
-        sync: false
-      - key: MYSQL_DATABASE
-        sync: false
-      - key: MYSQL_SSL_MODE
-        value: VERIFY_CA
-      - key: MYSQL_SSL_CA
+      - key: DATABASE_URL
         sync: false
 
   - type: web
     name: budget-tracker-frontend
     runtime: static
+    region: frankfurt
     rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
