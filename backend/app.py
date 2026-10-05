@@ -1,13 +1,22 @@
 from datetime import date as Date
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from db import get_db, init_db
+from db import (
+    VALID_FREQUENCIES,
+    ensure_current_period,
+    get_db,
+    get_period_summary,
+    init_db,
+    period_dates,
+)
 
 app = Flask(__name__)
 CORS(app)
-
-# Initialise SQLite for both local runs and production WSGI servers.
 init_db()
+
+
+def current_period(db):
+    return ensure_current_period(db)
 
 
 @app.get("/api/health")
@@ -15,47 +24,100 @@ def health():
     return jsonify({"status": "ok"})
 
 
-@app.get("/api/summary")
-def summary():
+@app.get("/api/settings")
+def settings():
     db = get_db()
-    income = db.execute(
-        "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE type='income'"
-    ).fetchone()[0]
-    expenses = db.execute(
-        "SELECT COALESCE(SUM(amount),0) FROM transactions WHERE type='expense'"
-    ).fetchone()[0]
-    transactions = db.execute(
-        "SELECT * FROM transactions ORDER BY date DESC, id DESC LIMIT 8"
-    ).fetchall()
-    categories = db.execute("""
-      SELECT category, COALESCE(SUM(amount),0) AS total
-      FROM transactions
-      WHERE type='expense'
-      GROUP BY category
-      ORDER BY total DESC
-    """).fetchall()
-    tasks = db.execute("SELECT COUNT(*) FROM tasks WHERE done=0").fetchone()[0]
-    study = db.execute(
-        "SELECT COALESCE(SUM(duration),0) FROM study_sessions WHERE done=0"
-    ).fetchone()[0]
+    period = current_period(db)
+    frequency = db.execute(
+        "SELECT reset_frequency FROM settings WHERE id=1"
+    ).fetchone()["reset_frequency"]
+    db.close()
+    return jsonify({
+        "resetFrequency": frequency,
+        "currentPeriod": dict(period),
+    })
+
+
+@app.patch("/api/settings")
+def update_settings():
+    data = request.get_json() or {}
+    frequency = data.get("resetFrequency")
+
+    if frequency not in VALID_FREQUENCIES:
+        return jsonify({
+            "error": "Reset frequency must be daily, weekly, monthly or yearly"
+        }), 400
+
+    db = get_db()
+    old_frequency = db.execute(
+        "SELECT reset_frequency FROM settings WHERE id=1"
+    ).fetchone()["reset_frequency"]
+
+    if frequency != old_frequency:
+        db.execute(
+            """
+            UPDATE budget_periods
+            SET is_current=0
+            WHERE is_current=1
+            """
+        )
+        db.execute(
+            """
+            UPDATE settings
+            SET reset_frequency=?, updated_at=CURRENT_TIMESTAMP
+            WHERE id=1
+            """,
+            (frequency,),
+        )
+
+    period = current_period(db)
     db.close()
 
     return jsonify({
-        "income": income,
-        "expenses": expenses,
-        "balance": income - expenses,
-        "recentTransactions": [dict(x) for x in transactions],
-        "categories": [dict(x) for x in categories],
+        "resetFrequency": frequency,
+        "previousFrequency": old_frequency,
+        "currentPeriod": dict(period),
+        "message": (
+            "A new budget period has been started. Your previous budgets remain in history."
+            if frequency != old_frequency
+            else "Settings saved."
+        ),
+    })
+
+
+@app.get("/api/summary")
+def summary():
+    db = get_db()
+    period = current_period(db)
+    data = get_period_summary(db, period["id"])
+
+    tasks = db.execute(
+        "SELECT COUNT(*) FROM tasks WHERE done=0"
+    ).fetchone()[0]
+    study = db.execute(
+        "SELECT COALESCE(SUM(duration),0) FROM study_sessions WHERE done=0"
+    ).fetchone()[0]
+
+    db.close()
+
+    return jsonify({
+        **data,
         "openTasks": tasks,
-        "plannedStudyMinutes": study
+        "plannedStudyMinutes": study,
     })
 
 
 @app.get("/api/transactions")
 def transactions():
     db = get_db()
+    period = current_period(db)
     rows = db.execute(
-        "SELECT * FROM transactions ORDER BY date DESC, id DESC"
+        """
+        SELECT * FROM transactions
+        WHERE period_id=?
+        ORDER BY date DESC, id DESC
+        """,
+        (period["id"],),
     ).fetchall()
     db.close()
     return jsonify([dict(x) for x in rows])
@@ -80,9 +142,14 @@ def add_transaction():
     note = (data.get("note") or "").strip()
 
     db = get_db()
+    period = current_period(db)
+
     cur = db.execute(
-        "INSERT INTO transactions(type, amount, category, note, date) VALUES (?,?,?,?,datetime('now'))",
-        (data["type"], amount, category, note)
+        """
+        INSERT INTO transactions(type, amount, category, note, date, period_id)
+        VALUES (?,?,?,?,datetime('now'),?)
+        """,
+        (data["type"], amount, category, note, period["id"]),
     )
     db.commit()
     row = db.execute(
@@ -95,10 +162,60 @@ def add_transaction():
 @app.delete("/api/transactions/<int:item_id>")
 def delete_transaction(item_id):
     db = get_db()
-    db.execute("DELETE FROM transactions WHERE id=?", (item_id,))
+    period = current_period(db)
+    db.execute(
+        "DELETE FROM transactions WHERE id=? AND period_id=?",
+        (item_id, period["id"]),
+    )
     db.commit()
     db.close()
     return jsonify({"ok": True})
+
+
+@app.get("/api/budgets")
+def budgets():
+    db = get_db()
+    current_period(db)
+    rows = db.execute(
+        """
+        SELECT * FROM budget_periods
+        ORDER BY start_date DESC, id DESC
+        """
+    ).fetchall()
+
+    result = []
+    for row in rows:
+        data = get_period_summary(db, row["id"])
+        result.append(data)
+
+    db.close()
+    return jsonify(result)
+
+
+@app.get("/api/budgets/<int:period_id>")
+def budget_detail(period_id):
+    db = get_db()
+    current_period(db)
+    data = get_period_summary(db, period_id)
+
+    if not data:
+        db.close()
+        return jsonify({"error": "Budget period not found"}), 404
+
+    rows = db.execute(
+        """
+        SELECT * FROM transactions
+        WHERE period_id=?
+        ORDER BY date DESC, id DESC
+        """,
+        (period_id,),
+    ).fetchall()
+    db.close()
+
+    return jsonify({
+        **data,
+        "transactions": [dict(row) for row in rows],
+    })
 
 
 @app.get("/api/tasks")
@@ -126,7 +243,7 @@ def add_task():
     db = get_db()
     cur = db.execute(
         "INSERT INTO tasks(name, priority, done, created) VALUES (?,?,0,datetime('now'))",
-        (name, priority)
+        (name, priority),
     )
     db.commit()
     row = db.execute(
@@ -141,7 +258,7 @@ def toggle_task(item_id):
     db = get_db()
     db.execute(
         "UPDATE tasks SET done = CASE done WHEN 0 THEN 1 ELSE 0 END WHERE id=?",
-        (item_id,)
+        (item_id,),
     )
     db.commit()
     row = db.execute(
@@ -198,7 +315,7 @@ def add_study():
     db = get_db()
     cur = db.execute(
         "INSERT INTO study_sessions(subject, duration, date, done) VALUES (?,?,?,0)",
-        (subject.title(), duration, raw_date)
+        (subject.title(), duration, raw_date),
     )
     db.commit()
     row = db.execute(
@@ -213,7 +330,7 @@ def toggle_study(item_id):
     db = get_db()
     db.execute(
         "UPDATE study_sessions SET done = CASE done WHEN 0 THEN 1 ELSE 0 END WHERE id=?",
-        (item_id,)
+        (item_id,),
     )
     db.commit()
     row = db.execute(
