@@ -9,6 +9,7 @@ const tasks = ref([])
 const study = ref([])
 const error = ref('')
 const saving = ref(false)
+const isNight = ref(localStorage.getItem('productivity-theme') === 'night')
 const form = ref({type:'expense',amount:'',category:'Food',note:''})
 const taskName = ref('')
 const taskPriority = ref('medium')
@@ -16,6 +17,10 @@ const studyForm = ref({subject:'',duration:60,date:new Date().toISOString().slic
 
 const money = n => new Intl.NumberFormat('en-ZA',{style:'currency',currency:'ZAR'}).format(Number(n||0))
 const spendingMax = computed(()=>Math.max(...summary.value.categories.map(x=>Number(x.total)),1))
+function toggleTheme() {
+  isNight.value = !isNight.value
+  localStorage.setItem('productivity-theme', isNight.value ? 'night' : 'sunset')
+}
 
 async function request(url, options={}) {
   const res = await fetch(api + url, {headers:{'Content-Type':'application/json',...(options.headers||{})},...options})
@@ -56,8 +61,8 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="landscape" aria-hidden="true">
-    <div class="sun-glow"></div><div class="sun"></div>
+  <div class="landscape" :class="{night:isNight}" aria-hidden="true">
+    <div class="sun-glow"></div><div class="sun"></div><div class="moon-glow"></div><div class="moon"><span></span></div>
     <div class="cloud cloud-one"></div><div class="cloud cloud-two"></div>
     <div class="mountain mountain-back"></div><div class="mountain mountain-front"></div>
     <div class="field-glow"></div><div class="grass-line grass-line-one"></div><div class="grass-line grass-line-two"></div>
@@ -67,11 +72,11 @@ onMounted(load)
   <div class="app-shell">
     <aside class="sidebar glass-card">
       <div class="brand"><div class="brand-mark">✦</div><div><b>PRODUCTIVITY</b><small>SUITE</small></div></div>
-      <div class="weather-note"><span class="weather-dot"></span><div><strong>SUNSET MODE</strong><small>Slow down. Make progress.</small></div></div>
+      <div class="weather-note"><span class="weather-dot"></span><div><strong>{{isNight ? 'MOONLIGHT MODE' : 'SUNSET MODE'}}</strong><small>{{isNight ? 'A quieter night for focused work.' : 'Slow down. Make progress.'}}</small></div></div>
       <nav>
         <button v-for="item in [['dashboard','Overview','⌂'],['transactions','Budget','◇'],['tasks','Tasks','✓'],['study','Study Planner','✎']]" :key="item[0]" :class="{active:active===item[0]}" @click="active=item[0]"><span>{{item[2]}}</span>{{item[1]}}</button>
       </nav>
-      <div class="side-note"><span>TAKE IT ONE</span><strong>DAY AT A TIME.</strong></div>
+      <button class="theme-toggle" @click="toggleTheme" :aria-label="isNight ? 'Switch to sunset mode' : 'Switch to moonlight mode'"><span class="theme-icon">{{isNight ? '☀' : '☾'}}</span><span><b>{{isNight ? 'SUNSET' : 'MOONLIGHT'}}</b><small>{{isNight ? 'Return to golden hour' : 'Switch to night'}}</small></span></button><div class="side-note"><span>TAKE IT ONE</span><strong>DAY AT A TIME.</strong></div>
     </aside>
 
     <main>
