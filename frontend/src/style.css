@@ -59,3 +59,26 @@
 .app-shell.night .quote-card p{color:#c9d3de}
 .app-shell.night .record-count{color:#8998a8}
 .app-shell.night .error{background:rgba(64,34,37,.92);color:#ffc8bd;border-color:rgba(255,205,194,.14)}
+
+/* Budget periods, history and settings */
+.period-banner{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:19px 22px;border-radius:20px}
+.period-banner h2{font-size:17px;color:#46383a}.period-banner small{display:block;color:var(--muted);font-size:10px;margin-top:5px}
+.period-banner button,.history-bottom button{border:0;background:transparent;color:var(--warm-deep);font-size:10px;font-weight:700;letter-spacing:.5px}
+.history-intro p,.settings-panel>p{max-width:800px;color:var(--muted);font-size:12px;line-height:1.7;margin:8px 0 0}
+.history-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+.history-card{padding:19px;border-radius:20px}
+.history-card.current{box-shadow:0 0 0 2px rgba(198,101,69,.28),var(--shadow)}
+.history-top{display:flex;justify-content:space-between;align-items:center}.history-top span{font-size:8px;letter-spacing:1.5px;color:var(--warm);font-weight:700}.history-top small{text-transform:capitalize;color:var(--muted);font-size:10px}
+.history-card h3{font-size:14px;font-weight:500;color:#4a3c3d;margin:14px 0}.history-card h3 span{color:var(--muted);margin:0 4px}
+.history-money{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:13px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.history-money small{display:block;color:var(--muted);font-size:8px;letter-spacing:1px}.history-money strong{display:block;margin-top:5px;font-size:14px;color:#473a3b}
+.history-bottom{display:flex;justify-content:space-between;align-items:center;padding-top:13px}.history-bottom>small{color:var(--muted);font-size:10px}
+.selected-budget .stats.compact{grid-template-columns:repeat(3,1fr);margin-bottom:10px}.selected-budget .stat-card{box-shadow:none;border:1px solid var(--line);background:rgba(255,255,255,.25)}.selected-budget .stat-card strong{font-size:19px}
+.settings-panel{padding:25px}.frequency-options{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin-top:22px}.frequency-options label{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:5px;padding:17px;border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.25);cursor:pointer;transition:transform 160ms ease,border-color 160ms ease,background 160ms ease}.frequency-options label:hover{transform:translateY(-2px)}.frequency-options label.selected{border-color:rgba(198,101,69,.52);background:rgba(213,151,105,.12);box-shadow:0 8px 20px rgba(80,48,39,.08)}.frequency-options input{position:absolute;opacity:0}.freq-icon{font-size:18px;color:var(--warm)}.frequency-options b{font-size:12px;color:#493b3c}.frequency-options small{font-size:9px;color:var(--muted);line-height:1.4}.settings-actions{display:flex;justify-content:space-between;align-items:center;gap:15px;margin-top:20px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:11px}.settings-actions button{border:0;border-radius:10px;padding:12px 16px;color:#fffaf0;background:linear-gradient(145deg,#c96b4d,#a54d39);font-size:10px;font-weight:700;letter-spacing:.7px}.guarantee-list{display:grid;gap:0;margin-top:12px}.guarantee-list div{padding:14px 0;border-bottom:1px solid var(--line)}.guarantee-list div:last-child{border-bottom:0}.guarantee-list b,.guarantee-list small{display:block}.guarantee-list b{font-size:12px;color:#4a3c3d}.guarantee-list small{font-size:10px;color:var(--muted);margin-top:4px}
+.app-shell.night .period-banner h2,.app-shell.night .history-card h3,.app-shell.night .history-money strong,.app-shell.night .frequency-options b,.app-shell.night .guarantee-list b{color:#e3eaf2}
+.app-shell.night .period-banner,.app-shell.night .history-card,.app-shell.night .settings-panel{background:linear-gradient(145deg,rgba(25,36,49,.88),rgba(13,23,34,.84))}
+.app-shell.night .frequency-options label{background:rgba(7,15,25,.28);border-color:rgba(190,214,239,.12)}
+.app-shell.night .frequency-options label.selected{background:rgba(194,142,93,.12);border-color:rgba(211,163,105,.55)}
+.app-shell.night .selected-budget .stat-card{background:rgba(7,15,25,.25)}
+@media(max-width:900px){.history-grid{grid-template-columns:1fr}.frequency-options{grid-template-columns:1fr 1fr}}
+@media(max-width:640px){.period-banner{display:block}.period-banner button{margin-top:12px;padding:0}.history-money{grid-template-columns:1fr}.settings-actions{display:block}.settings-actions button{margin-top:12px}.frequency-options{grid-template-columns:1fr}.selected-budget .stats.compact{grid-template-columns:1fr}}
