@@ -41,8 +41,19 @@ const taskPriority = ref('medium')
 const studyForm = ref({
   subject: '',
   duration: 60,
-  date: new Date().toISOString().slice(0, 10)
+  date: localDateString()
 })
+
+function localDateString() {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Johannesburg',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  })
+
+  return formatter.format(new Date())
+}
 
 const money = (n) => {
   return new Intl.NumberFormat('en-ZA', {
@@ -237,7 +248,7 @@ function addStudy() {
     studyForm.value = {
       subject: '',
       duration: 60,
-      date: new Date().toISOString().slice(0, 10)
+      date: localDateString()
     }
   })
 }
