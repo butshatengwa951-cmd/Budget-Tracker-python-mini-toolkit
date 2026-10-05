@@ -9,6 +9,7 @@ from db import (
     get_period_summary,
     init_db,
     period_dates,
+    VALID_TIME_UNITS,
 )
 
 app = Flask(__name__)
@@ -96,7 +97,7 @@ def summary():
         "SELECT COUNT(*) FROM tasks WHERE done=0"
     ).fetchone()[0]
     study = db.execute(
-        "SELECT COALESCE(SUM(duration),0) FROM study_sessions WHERE done=0"
+        "SELECT COALESCE(SUM(duration_seconds),0) FROM study_sessions WHERE done=0"
     ).fetchone()[0]
 
     db.close()
@@ -104,7 +105,8 @@ def summary():
     return jsonify({
         **data,
         "openTasks": tasks,
-        "plannedStudyMinutes": study,
+        "plannedStudySeconds": study,
+        "plannedStudyMinutes": round(study / 60, 2),
     })
 
 
@@ -292,11 +294,12 @@ def study():
 def add_study():
     data = request.get_json() or {}
     subject = (data.get("subject") or "").strip()
+    unit = (data.get("unit") or "minutes").strip().lower()
 
     try:
-        duration = int(data["duration"])
+        duration = float(data["duration"])
     except (KeyError, TypeError, ValueError):
-        return jsonify({"error": "Duration must be a whole number"}), 400
+        return jsonify({"error": "Duration must be a number"}), 400
 
     raw_date = (data.get("date") or "").strip()
 
@@ -305,9 +308,22 @@ def add_study():
     except ValueError:
         return jsonify({"error": "Date must be a valid YYYY-MM-DD date"}), 400
 
-    if not subject or duration < 1 or duration > 480:
+    if unit not in VALID_TIME_UNITS:
+        return jsonify({"error": "Time unit must be seconds, minutes or hours"}), 400
+
+    if duration <= 0:
+        return jsonify({"error": "Duration must be greater than 0"}), 400
+
+    if unit == "seconds":
+        duration_seconds = round(duration)
+    elif unit == "minutes":
+        duration_seconds = round(duration * 60)
+    else:
+        duration_seconds = round(duration * 3600)
+
+    if duration_seconds < 1 or duration_seconds > 86400:
         return jsonify({
-            "error": "Subject is required and duration must be between 1 and 480 minutes"
+            "error": "Study sessions must be between 1 second and 24 hours"
         }), 400
 
     if parsed_date.isoformat() != raw_date:
@@ -315,8 +331,12 @@ def add_study():
 
     db = get_db()
     cur = db.execute(
-        "INSERT INTO study_sessions(subject, duration, date, done) VALUES (?,?,?,0)",
-        (subject.title(), duration, raw_date),
+        """
+        INSERT INTO study_sessions
+          (subject, duration, date, done, unit, duration_seconds)
+        VALUES (?,?,?,0,?,?)
+        """,
+        (subject.title(), duration, raw_date, unit, duration_seconds),
     )
     db.commit()
     row = db.execute(
