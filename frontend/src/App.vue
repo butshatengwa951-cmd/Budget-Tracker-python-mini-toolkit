@@ -12,6 +12,7 @@ const summary = ref({
   categories: [],
   openTasks: 0,
   plannedStudyMinutes: 0,
+  plannedStudySeconds: 0,
   startDate: '',
   endDate: ''
 })
@@ -41,6 +42,7 @@ const taskPriority = ref('medium')
 const studyForm = ref({
   subject: '',
   duration: 60,
+  unit: 'minutes',
   date: localDateString()
 })
 
@@ -251,6 +253,7 @@ function addStudy() {
     studyForm.value = {
       subject: '',
       duration: 60,
+      unit: 'minutes',
       date: localDateString()
     }
   })
@@ -352,8 +355,8 @@ onMounted(loadAll)
       </section>
 
       <section v-if="active==='study'" class="page">
-        <article class="panel glass-card form-panel"><div><span class="panel-kicker">QUIET WORK</span><h2>Plan a study session</h2></div><div class="form-grid"><input v-model="studyForm.subject" placeholder="Subject / topic"><div class="time-input"><input v-model="studyForm.duration" type="number" min="1" max="480" placeholder="60" aria-label="Duration in minutes" title="Duration in minutes. 60 minutes equals 1 hour."><span>minutes</span></div><input v-model="studyForm.date" type="date" aria-label="Study date" title="Study date — the date this session is planned for."><button :disabled="saving" @click="addStudy">{{saving?'SAVING…':'ADD SESSION'}}</button></div></article>
-        <article class="panel glass-card"><div v-for="s in study" :key="s.id" class="task-row" :class="{done:s.done}"><label class="check-wrap"><input type="checkbox" :checked="s.done" @change="toggleStudy(s.id)"><span class="check"></span></label><span class="task-copy"><b>{{s.subject}}</b><small>{{s.duration}} minutes · {{s.date}}</small></span></div><div v-if="!study.length" class="empty">Plan your first session and make some space for yourself.</div></article>
+        <article class="panel glass-card form-panel"><div><span class="panel-kicker">QUIET WORK</span><h2>Plan a study session</h2></div><div class="form-grid"><input v-model="studyForm.duration" type="number" min="0.01" step="any" placeholder="60" aria-label="Study duration"><select v-model="studyForm.unit" aria-label="Time unit" class="time-unit"><option value="seconds">seconds</option><option value="minutes">minutes</option><option value="hours">hours</option></select><input v-model="studyForm.subject" placeholder="Subject / topic"><input v-model="studyForm.date" type="date" aria-label="Study date" title="Study date — the date this session is planned for."><button :disabled="saving" @click="addStudy">{{saving?'SAVING…':'ADD SESSION'}}</button></div></article>
+        <article class="panel glass-card"><div v-for="s in study" :key="s.id" class="task-row" :class="{done:s.done}"><label class="check-wrap"><input type="checkbox" :checked="s.done" @change="toggleStudy(s.id)"><span class="check"></span></label><span class="task-copy"><b>{{s.subject}}</b><small>{{s.duration}} {{s.unit || 'minutes'}} · {{s.date}}</small></span></div><div v-if="!study.length" class="empty">Plan your first session and make some space for yourself.</div></article>
       </section>
 
       <section v-if="active==='history'" class="page">
