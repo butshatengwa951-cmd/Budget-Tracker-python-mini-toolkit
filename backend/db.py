@@ -17,6 +17,7 @@ except ZoneInfoNotFoundError:
     LOCAL_TZ = timezone(timedelta(hours=2))
 
 VALID_FREQUENCIES = ("daily", "weekly", "monthly", "yearly")
+VALID_TIME_UNITS = ("seconds", "minutes", "hours")
 
 
 def local_now():
@@ -126,9 +127,11 @@ def init_db():
     CREATE TABLE IF NOT EXISTS study_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       subject TEXT NOT NULL,
-      duration INTEGER NOT NULL,
+      duration REAL NOT NULL,
       date TEXT NOT NULL,
-      done INTEGER NOT NULL DEFAULT 0
+      done INTEGER NOT NULL DEFAULT 0,
+      unit TEXT NOT NULL DEFAULT 'minutes',
+      duration_seconds INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS settings (
@@ -153,7 +156,17 @@ def init_db():
     """)
 
     ensure_column(db, "transactions", "period_id", "INTEGER")
+    ensure_column(db, "study_sessions", "unit", "TEXT NOT NULL DEFAULT 'minutes'")
+    ensure_column(db, "study_sessions", "duration_seconds", "INTEGER NOT NULL DEFAULT 0")
     convert_legacy_transaction_timestamps(db)
+
+    # Existing study sessions were stored as minutes.
+    db.execute("""
+        UPDATE study_sessions
+        SET unit='minutes',
+            duration_seconds=CAST(ROUND(duration * 60) AS INTEGER)
+        WHERE duration_seconds IS NULL OR duration_seconds=0
+    """)
 
     frequency = db.execute(
         "SELECT reset_frequency FROM settings WHERE id=1"
