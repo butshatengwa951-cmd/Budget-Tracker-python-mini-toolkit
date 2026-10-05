@@ -2,59 +2,281 @@
 import { computed, onMounted, ref } from 'vue'
 
 const api = '/api'
+
 const active = ref('dashboard')
-const summary = ref({income:0,expenses:0,balance:0,recentTransactions:[],categories:[],openTasks:0,plannedStudyMinutes:0})
+const summary = ref({
+  income: 0,
+  expenses: 0,
+  balance: 0,
+  recentTransactions: [],
+  categories: [],
+  openTasks: 0,
+  plannedStudyMinutes: 0,
+  startDate: '',
+  endDate: ''
+})
 const transactions = ref([])
 const tasks = ref([])
 const study = ref([])
 const budgets = ref([])
 const selectedBudget = ref(null)
-const settings = ref({resetFrequency:'monthly',currentPeriod:null})
+const settings = ref({
+  resetFrequency: 'monthly',
+  currentPeriod: null
+})
 const error = ref('')
 const saving = ref(false)
 const isNight = ref(localStorage.getItem('productivity-theme') === 'night')
-const form = ref({type:'expense',amount:'',category:'Food',note:''})
-const taskName = ref('')
-const taskPriority = ref('medium')
-const studyForm = ref({subject:'',duration:60,date:new Date().toISOString().slice(0,10)})
 
-const money = n => new Intl.NumberFormat('en-ZA',{style:'currency',currency:'ZAR'}).format(Number(n||0))
-const spendingMax = computed(()=>Math.max(...summary.value.categories.map(x=>Number(x.total)),1))
-const frequencyLabel = computed(()=>({daily:'Daily',weekly:'Weekly',monthly:'Monthly',yearly:'Yearly'}[settings.value.resetFrequency] || 'Monthly'))
-const periodLabel = computed(()=> {
-  const p=summary.value
-  if(!p.startDate) return 'Current budget'
-  return p.startDate===p.endDate ? p.startDate : p.startDate+' → '+p.endDate
+const form = ref({
+  type: 'expense',
+  amount: '',
+  category: 'Food',
+  note: ''
 })
 
-function toggleTheme(){isNight.value=!isNight.value;localStorage.setItem('productivity-theme',isNight.value?'night':'sunset')}
+const taskName = ref('')
+const taskPriority = ref('medium')
 
-async function request(url, options={}) {
-  const res=await fetch(api+url,{headers:{'Content-Type':'application/json',...(options.headers||{})},...options})
-  if(!res.ok) throw new Error((await res.json().catch(()=>({}))).error||'Request failed')
-  return res.json()
+const studyForm = ref({
+  subject: '',
+  duration: 60,
+  date: new Date().toISOString().slice(0, 10)
+})
+
+const money = (n) => {
+  return new Intl.NumberFormat('en-ZA', {
+    style: 'currency',
+    currency: 'ZAR'
+  }).format(Number(n || 0))
 }
-async function loadAll(){
-  error.value=''
-  try{
-    const [sum,tx,ta,st,set,bh]=await Promise.all([request('/summary'),request('/transactions'),request('/tasks'),request('/study'),request('/settings'),request('/budgets')])
-    summary.value=sum;transactions.value=tx;tasks.value=ta;study.value=st;settings.value=set;budgets.value=bh
-  }catch(e){error.value=e.message}
+
+const spendingMax = computed(() => {
+  return Math.max(
+    ...summary.value.categories.map((item) => Number(item.total)),
+    1
+  )
+})
+
+const frequencyLabel = computed(() => {
+  const labels = {
+    daily: 'Daily',
+    weekly: 'Weekly',
+    monthly: 'Monthly',
+    yearly: 'Yearly'
+  }
+
+  return labels[settings.value.resetFrequency] || 'Monthly'
+})
+
+const periodLabel = computed(() => {
+  const start = summary.value.startDate
+  const end = summary.value.endDate
+
+  if (!start) {
+    return 'Current budget'
+  }
+
+  return start === end ? start : `${start} → ${end}`
+})
+
+function toggleTheme() {
+  isNight.value = !isNight.value
+  localStorage.setItem(
+    'productivity-theme',
+    isNight.value ? 'night' : 'sunset'
+  )
 }
-async function loadBudget(id){
-  try{selectedBudget.value=await request('/budgets/'+id)}catch(e){error.value=e.message}
+
+async function request(url, options = {}) {
+  const response = await fetch(api + url, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    },
+    ...options
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload.error || 'Request failed')
+  }
+
+  return response.json()
 }
-async function runAction(action){error.value='';saving.value=true;try{await action();await loadAll()}catch(e){error.value=e.message}finally{saving.value=false}}
-function addTransaction(){if(!form.value.amount){error.value='Enter an amount before adding the transaction.';return}runAction(async()=>{await request('/transactions',{method:'POST',body:JSON.stringify(form.value)});form.value={type:'expense',amount:'',category:'Food',note:''}})}
-function removeTransaction(id){runAction(()=>request('/transactions/'+id,{method:'DELETE'}))}
-function addTask(){if(!taskName.value.trim()){error.value='Enter a task before adding it.';return}runAction(async()=>{await request('/tasks',{method:'POST',body:JSON.stringify({name:taskName.value,priority:taskPriority.value}));taskName.value=''})}
-function toggleTask(id){runAction(()=>request('/tasks/'+id,{method:'PATCH'}))}
-function removeTask(id){runAction(()=>request('/tasks/'+id,{method:'DELETE'}))}
-function addStudy(){if(!studyForm.value.subject.trim()){error.value='Enter a subject before adding the study session.';return}runAction(async()=>{await request('/study',{method:'POST',body:JSON.stringify(studyForm.value));studyForm.value={subject:'',duration:60,date:new Date().toISOString().slice(0,10)}})}
-function toggleStudy(id){runAction(()=>request('/study/'+id,{method:'PATCH'}))}
-async function saveSettings(){await runAction(async()=>{const data=await request('/settings',{method:'PATCH',body:JSON.stringify(settings.value)});settings.value={...settings.value,...data};selectedBudget.value=null})}
-async function openHistory(){active.value='history';await loadAll()}
-async function viewBudget(id){await loadBudget(id);active.value='history'}
+
+async function loadAll() {
+  error.value = ''
+
+  try {
+    const [
+      summaryData,
+      transactionData,
+      taskData,
+      studyData,
+      settingsData,
+      budgetData
+    ] = await Promise.all([
+      request('/summary'),
+      request('/transactions'),
+      request('/tasks'),
+      request('/study'),
+      request('/settings'),
+      request('/budgets')
+    ])
+
+    summary.value = summaryData
+    transactions.value = transactionData
+    tasks.value = taskData
+    study.value = studyData
+    settings.value = settingsData
+    budgets.value = budgetData
+  } catch (err) {
+    error.value = err.message
+  }
+}
+
+async function loadBudget(id) {
+  try {
+    selectedBudget.value = await request('/budgets/' + id)
+  } catch (err) {
+    error.value = err.message
+  }
+}
+
+async function runAction(action) {
+  error.value = ''
+  saving.value = true
+
+  try {
+    await action()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    saving.value = false
+  }
+}
+
+function addTransaction() {
+  if (!form.value.amount) {
+    error.value = 'Enter an amount before adding the transaction.'
+    return
+  }
+
+  runAction(async () => {
+    await request('/transactions', {
+      method: 'POST',
+      body: JSON.stringify(form.value)
+    })
+
+    form.value = {
+      type: 'expense',
+      amount: '',
+      category: 'Food',
+      note: ''
+    }
+  })
+}
+
+function removeTransaction(id) {
+  runAction(() => {
+    return request('/transactions/' + id, {
+      method: 'DELETE'
+    })
+  })
+}
+
+function addTask() {
+  if (!taskName.value.trim()) {
+    error.value = 'Enter a task before adding it.'
+    return
+  }
+
+  runAction(async () => {
+    await request('/tasks', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: taskName.value,
+        priority: taskPriority.value
+      })
+    })
+
+    taskName.value = ''
+  })
+}
+
+function toggleTask(id) {
+  runAction(() => {
+    return request('/tasks/' + id, {
+      method: 'PATCH'
+    })
+  })
+}
+
+function removeTask(id) {
+  runAction(() => {
+    return request('/tasks/' + id, {
+      method: 'DELETE'
+    })
+  })
+}
+
+function addStudy() {
+  if (!studyForm.value.subject.trim()) {
+    error.value = 'Enter a subject before adding the study session.'
+    return
+  }
+
+  runAction(async () => {
+    await request('/study', {
+      method: 'POST',
+      body: JSON.stringify(studyForm.value)
+    })
+
+    studyForm.value = {
+      subject: '',
+      duration: 60,
+      date: new Date().toISOString().slice(0, 10)
+    }
+  })
+}
+
+function toggleStudy(id) {
+  runAction(() => {
+    return request('/study/' + id, {
+      method: 'PATCH'
+    })
+  })
+}
+
+async function saveSettings() {
+  await runAction(async () => {
+    const updated = await request('/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        resetFrequency: settings.value.resetFrequency
+      })
+    })
+
+    settings.value = {
+      ...settings.value,
+      ...updated
+    }
+
+    selectedBudget.value = null
+  })
+}
+
+function openHistory() {
+  active.value = 'history'
+}
+
+async function viewBudget(id) {
+  await loadBudget(id)
+  active.value = 'history'
+}
+
 onMounted(loadAll)
 </script>
 
