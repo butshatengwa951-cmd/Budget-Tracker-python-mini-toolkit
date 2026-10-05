@@ -88,3 +88,5 @@
 .time-input input{padding-right:58px!important}
 .time-input span{position:absolute;right:12px;top:50%;transform:translateY(-50%);color:#9b8983;font-size:10px;pointer-events:none}
 .app-shell.night .time-input span{color:#738195}
+
+.time-unit{min-width:105px!important}
