@@ -4,6 +4,7 @@ from flask_cors import CORS
 from db import (
     VALID_FREQUENCIES,
     ensure_current_period,
+    local_timestamp,
     get_db,
     get_period_summary,
     init_db,
@@ -64,10 +65,10 @@ def update_settings():
         db.execute(
             """
             UPDATE settings
-            SET reset_frequency=?, updated_at=CURRENT_TIMESTAMP
+            SET reset_frequency=?, updated_at=?
             WHERE id=1
             """,
-            (frequency,),
+            (frequency, local_timestamp()),
         )
 
     period = current_period(db)
@@ -147,9 +148,9 @@ def add_transaction():
     cur = db.execute(
         """
         INSERT INTO transactions(type, amount, category, note, date, period_id)
-        VALUES (?,?,?,?,datetime('now'),?)
+        VALUES (?,?,?,?,?,?)
         """,
-        (data["type"], amount, category, note, period["id"]),
+        (data["type"], amount, category, note, local_timestamp(), period["id"]),
     )
     db.commit()
     row = db.execute(
@@ -242,8 +243,8 @@ def add_task():
 
     db = get_db()
     cur = db.execute(
-        "INSERT INTO tasks(name, priority, done, created) VALUES (?,?,0,datetime('now'))",
-        (name, priority),
+        "INSERT INTO tasks(name, priority, done, created) VALUES (?,?,0,?)",
+        (name, priority, local_timestamp()),
     )
     db.commit()
     row = db.execute(
