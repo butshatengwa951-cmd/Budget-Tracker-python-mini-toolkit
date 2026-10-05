@@ -69,7 +69,7 @@ onMounted(load)
     <div class="fireflies"><i v-for="n in 18" :key="n" :style="{'--i':n}"></i></div>
   </div>
 
-  <div class="app-shell">
+  <div class="app-shell" :class="{night:isNight}">
     <aside class="sidebar glass-card">
       <div class="brand"><div class="brand-mark">✦</div><div><b>PRODUCTIVITY</b><small>SUITE</small></div></div>
       <div class="weather-note"><span class="weather-dot"></span><div><strong>{{isNight ? 'MOONLIGHT MODE' : 'SUNSET MODE'}}</strong><small>{{isNight ? 'A quieter night for focused work.' : 'Slow down. Make progress.'}}</small></div></div>
