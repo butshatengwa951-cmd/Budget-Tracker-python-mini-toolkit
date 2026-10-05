@@ -1,9 +1,8 @@
 import os
-import ssl
 from datetime import date, datetime, timedelta, timezone
 
-import pymysql
-from pymysql.cursors import DictCursor
+import psycopg
+from psycopg.rows import dict_row
 
 try:
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -13,7 +12,6 @@ except ImportError:
 
 VALID_FREQUENCIES = ("daily", "weekly", "monthly", "yearly")
 VALID_TIME_UNITS = ("seconds", "minutes", "hours")
-
 
 try:
     LOCAL_TZ = (
@@ -37,79 +35,25 @@ def local_timestamp():
     return local_now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _ssl_context():
-    mode = os.getenv("MYSQL_SSL_MODE", "VERIFY_CA").upper()
-    ca_value = os.getenv("MYSQL_SSL_CA", "").strip()
-
-    if mode == "DISABLED":
-        return None
-
-    if ca_value:
-        if "BEGIN CERTIFICATE" in ca_value:
-            return ssl.create_default_context(cadata=ca_value)
-        return ssl.create_default_context(cafile=ca_value)
-
-    if mode == "REQUIRED":
-        context = ssl.create_default_context()
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-        return context
-
-    raise RuntimeError(
-        "MYSQL_SSL_CA is required when MYSQL_SSL_MODE is VERIFY_CA."
-    )
-
-
 class Database:
     def __init__(self):
-        host = os.getenv("MYSQL_HOST")
-        user = os.getenv("MYSQL_USER")
-        password = os.getenv("MYSQL_PASSWORD")
-        database = os.getenv("MYSQL_DATABASE")
-        port = int(os.getenv("MYSQL_PORT", "3306"))
-
-        missing = [
-            name
-            for name, value in {
-                "MYSQL_HOST": host,
-                "MYSQL_USER": user,
-                "MYSQL_PASSWORD": password,
-                "MYSQL_DATABASE": database,
-            }.items()
-            if not value
-        ]
-
-        if missing:
+        database_url = os.getenv("DATABASE_URL", "").strip()
+        if not database_url:
             raise RuntimeError(
-                "Missing MySQL configuration: " + ", ".join(missing)
+                "DATABASE_URL is not configured. Add the Neon PostgreSQL connection string."
             )
 
-        connect_kwargs = {
-            "host": host,
-            "port": port,
-            "user": user,
-            "password": password,
-            "database": database,
-            "charset": "utf8mb4",
-            "cursorclass": DictCursor,
-            "autocommit": False,
-            "connect_timeout": 15,
-            "read_timeout": 30,
-            "write_timeout": 30,
-        }
-
-        ssl_context = _ssl_context()
-        if ssl_context is not None:
-            connect_kwargs["ssl"] = ssl_context
-
-        self.connection = pymysql.connect(**connect_kwargs)
+        self.connection = psycopg.connect(
+            database_url,
+            row_factory=dict_row,
+            connect_timeout=15,
+        )
 
     def execute(self, sql, params=None):
-        sql = sql.replace("?", "%s")
-        sql = sql.replace("INSERT OR IGNORE", "INSERT IGNORE")
-        cursor = self.connection.cursor()
-        cursor.execute(sql, params or ())
-        return cursor
+        return self.connection.execute(
+            sql.replace("?", "%s"),
+            params or (),
+        )
 
     def executescript(self, script):
         statements = [
@@ -137,11 +81,9 @@ def get_db():
 def period_dates(day, frequency):
     if frequency == "daily":
         return day, day
-
     if frequency == "weekly":
         start = day - timedelta(days=day.weekday())
         return start, start + timedelta(days=6)
-
     if frequency == "monthly":
         start = day.replace(day=1)
         if day.month == 12:
@@ -149,11 +91,9 @@ def period_dates(day, frequency):
         else:
             next_start = date(day.year, day.month + 1, 1)
         return start, next_start - timedelta(days=1)
-
     if frequency == "yearly":
         start = date(day.year, 1, 1)
         return start, date(day.year, 12, 31)
-
     raise ValueError(f"Unsupported budget frequency: {frequency}")
 
 
@@ -161,10 +101,10 @@ def ensure_column(db, table, column, definition):
     row = db.execute(
         """
         SELECT COUNT(*) AS column_count
-        FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA=DATABASE()
-          AND TABLE_NAME=?
-          AND COLUMN_NAME=?
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = ?
+          AND column_name = ?
         """,
         (table, column),
     ).fetchone()
@@ -175,63 +115,62 @@ def ensure_column(db, table, column, definition):
 
 def init_db():
     db = get_db()
-
     try:
         db.executescript(
             """
             CREATE TABLE IF NOT EXISTS transactions (
-              id INT PRIMARY KEY AUTO_INCREMENT,
-              type VARCHAR(20) NOT NULL,
-              amount DOUBLE NOT NULL,
+              id SERIAL PRIMARY KEY,
+              type VARCHAR(20) NOT NULL CHECK(type IN ('income','expense')),
+              amount DOUBLE PRECISION NOT NULL,
               category VARCHAR(255) NOT NULL,
-              note TEXT DEFAULT NULL,
+              note TEXT DEFAULT '',
               date VARCHAR(32) NOT NULL,
-              period_id INT,
-              CHECK(type IN ('income','expense'))
+              period_id INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS tasks (
-              id INT PRIMARY KEY AUTO_INCREMENT,
+              id SERIAL PRIMARY KEY,
               name VARCHAR(255) NOT NULL,
               priority VARCHAR(20) NOT NULL DEFAULT 'medium',
-              done TINYINT(1) NOT NULL DEFAULT 0,
+              done INTEGER NOT NULL DEFAULT 0,
               created VARCHAR(32) NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS study_sessions (
-              id INT PRIMARY KEY AUTO_INCREMENT,
+              id SERIAL PRIMARY KEY,
               subject VARCHAR(255) NOT NULL,
-              duration DOUBLE NOT NULL,
+              duration DOUBLE PRECISION NOT NULL,
               date VARCHAR(32) NOT NULL,
-              done TINYINT(1) NOT NULL DEFAULT 0,
+              done INTEGER NOT NULL DEFAULT 0,
               unit VARCHAR(16) NOT NULL DEFAULT 'minutes',
-              duration_seconds INT NOT NULL DEFAULT 0
+              duration_seconds INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS settings (
-              id INT PRIMARY KEY,
+              id INTEGER PRIMARY KEY CHECK(id = 1),
               reset_frequency VARCHAR(20) NOT NULL DEFAULT 'monthly',
               updated_at VARCHAR(32) NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS budget_periods (
-              id INT PRIMARY KEY AUTO_INCREMENT,
+              id SERIAL PRIMARY KEY,
               frequency VARCHAR(20) NOT NULL,
               start_date VARCHAR(32) NOT NULL,
               end_date VARCHAR(32) NOT NULL,
-              is_current TINYINT(1) NOT NULL DEFAULT 0,
+              is_current INTEGER NOT NULL DEFAULT 0,
               created_at VARCHAR(32) NOT NULL,
               closed_at VARCHAR(32) NULL,
-              UNIQUE KEY unique_frequency_start (frequency, start_date)
+              UNIQUE(frequency, start_date)
             );
 
-            INSERT IGNORE INTO settings (id, reset_frequency, updated_at)
-            VALUES (1, 'monthly', ?);
+            INSERT INTO settings (id, reset_frequency, updated_at)
+            VALUES (1, 'monthly', ?)
+            ON CONFLICT (id) DO NOTHING;
             """,
             (local_timestamp(),),
         )
 
-        ensure_column(db, "transactions", "period_id", "INT")
+        ensure_column(db, "transactions", "period_id", "INTEGER")
         ensure_column(
             db,
             "study_sessions",
@@ -242,7 +181,7 @@ def init_db():
             db,
             "study_sessions",
             "duration_seconds",
-            "INT NOT NULL DEFAULT 0",
+            "INTEGER NOT NULL DEFAULT 0",
         )
 
         db.execute(
@@ -257,6 +196,7 @@ def init_db():
         frequency_row = db.execute(
             "SELECT reset_frequency FROM settings WHERE id=1"
         ).fetchone()
+
         frequency = (
             frequency_row["reset_frequency"]
             if frequency_row
@@ -280,7 +220,9 @@ def init_db():
 
         for row in transaction_rows:
             try:
-                transaction_day = date.fromisoformat(str(row["date"])[:10])
+                transaction_day = date.fromisoformat(
+                    str(row["date"])[:10]
+                )
             except ValueError:
                 transaction_day = local_today()
 
@@ -291,6 +233,7 @@ def init_db():
                     "SELECT frequency FROM budget_periods WHERE id=?",
                     (row["period_id"],),
                 ).fetchone()
+
                 if period:
                     transaction_frequency = period["frequency"]
 
@@ -301,9 +244,10 @@ def init_db():
 
             db.execute(
                 """
-                INSERT IGNORE INTO budget_periods
+                INSERT INTO budget_periods
                   (frequency, start_date, end_date, is_current, created_at)
                 VALUES (?, ?, ?, 0, ?)
+                ON CONFLICT (frequency, start_date) DO NOTHING
                 """,
                 (
                     transaction_frequency,
@@ -343,7 +287,6 @@ def get_setting(db, key="reset_frequency"):
             "SELECT reset_frequency FROM settings WHERE id=1"
         ).fetchone()
         return row["reset_frequency"] if row else "monthly"
-
     return None
 
 
@@ -359,9 +302,11 @@ def ensure_current_period(db):
 
     db.execute(
         """
-        INSERT IGNORE INTO budget_periods
+        INSERT INTO budget_periods
           (frequency, start_date, end_date, is_current, created_at)
         VALUES (?, ?, ?, 1, ?)
+        ON CONFLICT (frequency, start_date)
+        DO UPDATE SET is_current=EXCLUDED.is_current
         """,
         (
             frequency,
