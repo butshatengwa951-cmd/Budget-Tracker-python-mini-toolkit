@@ -151,13 +151,13 @@ def add_transaction():
     cur = db.execute(
         """
         INSERT INTO transactions(type, amount, category, note, date, period_id)
-        VALUES (?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?) RETURNING id
         """,
         (data["type"], amount, category, note, local_timestamp(), period["id"]),
     )
     db.commit()
     row = db.execute(
-        "SELECT * FROM transactions WHERE id=?", (cur.lastrowid,)
+        "SELECT * FROM transactions WHERE id=?", (cur.fetchone()["id"],)
     ).fetchone()
     db.close()
     return jsonify(dict(row)), 201
@@ -246,7 +246,7 @@ def add_task():
 
     db = get_db()
     cur = db.execute(
-        "INSERT INTO tasks(name, priority, done, created) VALUES (?,?,0,?)",
+        "INSERT INTO tasks(name, priority, done, created) VALUES (?,?,0,?) RETURNING id",
         (name, priority, local_timestamp()),
     )
     db.commit()
@@ -335,7 +335,7 @@ def add_study():
         """
         INSERT INTO study_sessions
           (subject, duration, date, done, unit, duration_seconds)
-        VALUES (?,?,?,0,?,?)
+        VALUES (?,?,?,0,?,?) RETURNING id
         """,
         (subject.title(), duration, raw_date, unit, duration_seconds),
     )
