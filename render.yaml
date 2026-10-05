@@ -2,20 +2,28 @@ services:
   - type: web
     name: budget-tracker-api
     runtime: python
-    rootDir: backend
     region: frankfurt
-    plan: starter
+    plan: free
+    rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn --bind 0.0.0.0:$PORT app:app
     healthCheckPath: /api/health
     autoDeployTrigger: commit
     envVars:
-      - key: DB_PATH
-        value: /var/data/productivity.db
-    disk:
-      name: productivity-data
-      mountPath: /var/data
-      sizeGB: 5
+      - key: MYSQL_HOST
+        sync: false
+      - key: MYSQL_PORT
+        sync: false
+      - key: MYSQL_USER
+        sync: false
+      - key: MYSQL_PASSWORD
+        sync: false
+      - key: MYSQL_DATABASE
+        sync: false
+      - key: MYSQL_SSL_MODE
+        value: VERIFY_CA
+      - key: MYSQL_SSL_CA
+        sync: false
 
   - type: web
     name: budget-tracker-frontend
