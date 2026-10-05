@@ -30,9 +30,20 @@ The original CLI remains in this repository as part of the project's development
 ### Budget
 - Add income and expenses
 - Categories and notes
-- Transaction history
+- Current-period transaction history
+- Persistent SQLite storage
+- Configurable daily / weekly / monthly / yearly budget cycles
+- Automatic period rollover without deleting old data
+- Permanent Budget History with full archived transaction records
 - Delete transactions
 - Input validation
+
+### Settings & History
+- Choose when a budget resets: daily, weekly, monthly or yearly
+- Changing the cycle starts a new period while preserving previous periods
+- Browse every previous budget period
+- Open an archived period to inspect its income, expenses, balance and transactions
+- Existing transactions are migrated into the correct historical period during database initialization
 
 ### Tasks
 - Create tasks
