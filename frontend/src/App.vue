@@ -120,30 +120,25 @@ async function loadAll() {
   error.value = ''
 
   try {
-    const [
-      summaryData,
-      transactionData,
-      taskData,
-      studyData,
-      settingsData,
-      budgetData
-    ] = await Promise.all([
-      request('/summary'),
-      request('/transactions'),
-      request('/tasks'),
-      request('/study'),
-      request('/settings'),
-      request('/budgets')
-    ])
+    // Load sequentially so SQLite period housekeeping is not triggered
+    // by several requests at exactly the same time.
+    const settingsData = await request('/settings')
+    const summaryData = await request('/summary')
+    const transactionData = await request('/transactions')
+    const taskData = await request('/tasks')
+    const studyData = await request('/study')
+    const budgetData = await request('/budgets')
 
+    settings.value = settingsData
     summary.value = summaryData
     transactions.value = transactionData
     tasks.value = taskData
     study.value = studyData
-    settings.value = settingsData
     budgets.value = budgetData
   } catch (err) {
-    error.value = err.message
+    error.value = err instanceof TypeError
+      ? 'Could not reach the Flask backend. Make sure the backend is running.'
+      : err.message
   }
 }
 
@@ -344,12 +339,12 @@ onMounted(loadAll)
       </section>
 
       <section v-if="active==='tasks'" class="page">
-        <article class="panel glass-card form-panel"><div><span class="panel-kicker">NEXT STEPS</span><h2>New task</h2></div><div class="form-grid"><input v-model="taskName" @keyup.enter="addTask" placeholder="What needs doing?"><select v-model="taskPriority"><option>low</option><option>medium</option><option>high</option></select><button :disabled="saving" @click="addTask">{{saving?'SAVING…':'ADD TASK'}}</button></div></article>
+        <article class="panel glass-card form-panel"><div><span class="panel-kicker">NEXT STEPS</span><h2>New task</h2></div><div class="form-grid"><input v-model="taskName" @keyup.enter="addTask" placeholder="What needs doing?"><label class="field"><span>Priority level</span><select v-model="taskPriority"><option value="low">Low — flexible</option><option value="medium">Medium — normal</option><option value="high">High — urgent</option></select><small>Sets how important this task is and appears beside the task.</small></label><button :disabled="saving" @click="addTask">{{saving?'SAVING…':'ADD TASK'}}</button></div></article>
         <article class="panel glass-card"><div v-for="t in tasks" :key="t.id" class="task-row" :class="{done:t.done}"><label class="check-wrap"><input type="checkbox" :checked="t.done" @change="toggleTask(t.id)"><span class="check"></span></label><span class="task-copy"><b>{{t.name}}</b><small>{{t.priority}} priority</small></span><button class="delete" @click="removeTask(t.id)">×</button></div><div v-if="!tasks.length" class="empty">Nothing here yet. Add one small thing.</div></article>
       </section>
 
       <section v-if="active==='study'" class="page">
-        <article class="panel glass-card form-panel"><div><span class="panel-kicker">QUIET WORK</span><h2>Plan a study session</h2></div><div class="form-grid"><input v-model="studyForm.subject" placeholder="Subject / topic"><input v-model="studyForm.duration" type="number" min="1" max="480" placeholder="Minutes"><input v-model="studyForm.date" type="date"><button :disabled="saving" @click="addStudy">{{saving?'SAVING…':'ADD SESSION'}}</button></div></article>
+        <article class="panel glass-card form-panel"><div><span class="panel-kicker">QUIET WORK</span><h2>Plan a study session</h2></div><div class="form-grid"><input v-model="studyForm.subject" placeholder="Subject / topic"><label class="field"><span>Duration (minutes)</span><input v-model="studyForm.duration" type="number" min="1" max="480" placeholder="e.g. 60"><small>Enter minutes only. 60 minutes = 1 hour.</small></label><label class="field"><span>Study date</span><input v-model="studyForm.date" type="date"><small>The date this study session is planned for.</small></label><button :disabled="saving" @click="addStudy">{{saving?'SAVING…':'ADD SESSION'}}</button></div></article>
         <article class="panel glass-card"><div v-for="s in study" :key="s.id" class="task-row" :class="{done:s.done}"><label class="check-wrap"><input type="checkbox" :checked="s.done" @change="toggleStudy(s.id)"><span class="check"></span></label><span class="task-copy"><b>{{s.subject}}</b><small>{{s.duration}} minutes · {{s.date}}</small></span></div><div v-if="!study.length" class="empty">Plan your first session and make some space for yourself.</div></article>
       </section>
 
