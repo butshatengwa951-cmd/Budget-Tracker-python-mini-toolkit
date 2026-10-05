@@ -110,6 +110,13 @@ async function request(url, options = {}) {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}))
+
+    if (response.status >= 500) {
+      throw new Error(
+        'The Flask backend is not available. Start the backend with: python app.py'
+      )
+    }
+
     throw new Error(payload.error || 'Request failed')
   }
 
@@ -120,8 +127,9 @@ async function loadAll() {
   error.value = ''
 
   try {
-    // Load sequentially so SQLite period housekeeping is not triggered
-    // by several requests at exactly the same time.
+    // Check the backend once before loading the rest of the application.
+    await request('/health')
+
     const settingsData = await request('/settings')
     const summaryData = await request('/summary')
     const transactionData = await request('/transactions')
@@ -137,7 +145,7 @@ async function loadAll() {
     budgets.value = budgetData
   } catch (err) {
     error.value = err instanceof TypeError
-      ? 'Could not reach the Flask backend. Make sure the backend is running.'
+      ? 'The Flask backend is not available. Start it with: python app.py'
       : err.message
   }
 }
@@ -368,9 +376,9 @@ onMounted(loadAll)
       <section v-if="active==='settings'" class="page">
         <article class="panel glass-card settings-panel"><span class="panel-kicker">BUDGET CYCLE</span><h2>Choose when your budget resets.</h2><p>A reset starts a new budget period. <strong>Nothing is deleted.</strong> Your previous period is automatically archived and stays available in Budget History.</p>
         <div class="frequency-options">
-          <label v-for="option in [['daily','Daily','New budget every day'],['weekly','Weekly','Monday → Sunday'],['monthly','Monthly','1st → last day'],['yearly','Yearly','January → December']]" :key="option[0]" :class="{selected:settings.resetFrequency===option[0]}"><input type="radio" v-model="settings.resetFrequency" :value="option[0]"><span class="freq-icon">{{option[0]==='daily'?'☀':option[0]==='weekly'?'◒':option[0]==='monthly'?'◔':'✦'}}</span><b>{{option[1]}}</b><small>{{option[2]}}</small></label>
+          <label v-for="option in [['daily','Daily','New budget every day'],['weekly','Weekly','Monday → Sunday'],['monthly','Monthly','1st → last day'],['yearly','Yearly','January → December']]" :key="option[0]" :class="{selected:settings.resetFrequency===option[0]}"><input type="radio" v-model="settings.resetFrequency" :value="option[0]" @change="saveSettings"><span class="freq-icon">{{option[0]==='daily'?'☀':option[0]==='weekly'?'◒':option[0]==='monthly'?'◔':'✦'}}</span><b>{{option[1]}}</b><small>{{option[2]}}</small></label>
         </div>
-        <div class="settings-actions"><span>Current: <strong>{{frequencyLabel}}</strong></span><button :disabled="saving" @click="saveSettings">{{saving?'SAVING…':'SAVE BUDGET SETTINGS'}}</button></div></article>
+        <div class="settings-actions"><span>Current: <strong>{{frequencyLabel}}</strong></span><span class="auto-save">{{saving ? 'SAVING…' : '✓ SAVED AUTOMATICALLY'}}</span></div></article>
         <article class="panel glass-card"><span class="panel-kicker">DATA GUARANTEE</span><h2>Your history is permanent.</h2><div class="guarantee-list"><div><b>✓ Transactions stay stored</b><small>Changing the reset frequency never removes old income or expenses.</small></div><div><b>✓ Old periods stay accessible</b><small>Every completed cycle appears in Budget History.</small></div><div><b>✓ New cycles start automatically</b><small>When you return after a boundary, the app creates the correct period for you.</small></div></div></article>
       </section>
     </main>
