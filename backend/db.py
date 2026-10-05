@@ -55,14 +55,15 @@ class Database:
             params or (),
         )
 
-    def executescript(self, script):
+    def executescript(self, script, params=None):
         statements = [
             statement.strip()
             for statement in script.split(";")
             if statement.strip()
         ]
         for statement in statements:
-            self.execute(statement)
+            self.execute(statement, params)
+            params = None
 
     def commit(self):
         self.connection.commit()
