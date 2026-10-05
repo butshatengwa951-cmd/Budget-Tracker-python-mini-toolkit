@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: budget-tracker-api
+    runtime: python
+    rootDir: backend
+    region: frankfurt
+    plan: 0.5c-512mb
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT app:app
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: DB_PATH
+        value: /var/data/productivity.db
+    disk:
+      name: productivity-data
+      mountPath: /var/data
+      sizeGB: 5
+
+  - type: web
+    name: budget-tracker-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    autoDeployTrigger: commit
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://budget-tracker-api.onrender.com/api/*
+      - type: rewrite
+        source: /*
+        destination: /index.html
